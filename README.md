@@ -1,45 +1,50 @@
-![platform](https://img.shields.io/badge/platform-Raspberry%20Pi%203-blue)
-![kernel](https://img.shields.io/badge/kernel-64--bit-green)
+![platform](https://img.shields.io/badge/platform-Raspberry%20Pi%20Zero%202%20W-red)
+![kernel](https://img.shields.io/badge/kernel-v7%20/64--bit-green)
 ![license](https://img.shields.io/badge/license-GPLv2-red)
 ![realtime](https://img.shields.io/badge/realtime-SCHED_FIFO-critical)
 
 # TaaS — Time as a Service
 
-**Enterprise-Grade Hardware Timestamping & PTP Node for Raspberry Pi**
+**High-Precision Hardware Timestamping & PTP Node optimized for Raspberry Pi Zero 2 W**
 
 ---
 
 ## 📌 Visión General
 
-**TaaS (Time as a Service)** es una solución **enterprise-level** de sincronización de tiempo de **alta precisión**, diseñada para entornos embebidos, industriales y de infraestructura crítica.
+**TaaS (Time as a Service)** es una solución de sincronización de tiempo de **ultra-alta precisión**, diseñada para sistemas embebidos que requieren determinismo absoluto.
 
-El sistema expone el **System Timer de 64 bits del SoC BCM2837** directamente al espacio de usuario mediante un **driver Linux kernel** optimizado, y lo integra con un **nodo PTP (Precision Time Protocol)** de baja latencia que opera en tiempo real.
+Aprovecha el **System Timer de 64 bits del SoC BCM2837** presente en la **Raspberry Pi Zero 2 W**, exponiéndolo directamente desde el kernel al espacio de usuario. Esto permite obtener marcas de tiempo eliminando el *jitter* de las syscalls tradicionales de Linux.
 
-> 🎯 Objetivo principal: **timestamping determinista, estable y de ultra baja latencia**, eliminando jitter introducido por el kernel y llamadas syscall tradicionales.
+> 🎯 **Misión:** Proporcionar tiempo puro de hardware con latencia mínima para aplicaciones de infraestructura crítica y monitoreo industrial.
 
 ---
 
 ## 🧩 Arquitectura del Sistema
 
+
+
+
 ```
+
 ┌────────────────────────────┐
-│      Hardware (BCM2837)     │
-│  System Timer 64-bit (ST)   │
+│      Hardware (BCM2837)    │
+│  System Timer 64-bit (ST)  │
 └───────────────┬────────────┘
-                │ MMIO
+│ MMIO (Direct Access)
 ┌───────────────▼────────────┐
-│   Kernel Module (taas)      │
+│   Kernel Module (taas)     │
 │   - ioremap ST registers   │
 │   - /dev/taas_timer        │
-│   - mmap + read() API      │
+│   - mmap zero-copy API     │
 └───────────────┬────────────┘
-                │ mmap (zero-copy)
+│ Page Mapping
 ┌───────────────▼────────────┐
-│   User Space Node           │
-│   - SCHED_FIFO RT          │
-│   - UDP PTP (port 1588)    │
-│   - 64-bit timestamp reply │
+│    User Space Node         │
+│    - SCHED_FIFO RT         │
+│    - UDP PTP (Port 1588)   │
+│    - 64-bit RAW timestamp  │
 └────────────────────────────┘
+
 ```
 
 ---
@@ -47,150 +52,83 @@ El sistema expone el **System Timer de 64 bits del SoC BCM2837** directamente al
 ## 🚀 Componentes
 
 ### 1️⃣ Kernel Driver — `taas_driver`
-
-**Tipo:** Linux Kernel Module
-**Dispositivo:** `/dev/taas_timer`
-
-#### Funcionalidades clave
-
-* Acceso directo al **System Timer 64-bit**
-* Lectura atómica High/Low para consistencia temporal
-* Soporte **MMAP no-cacheado** (latencia mínima)
-* Registro como `miscdevice` con permisos controlados
-
-#### Interfaces
-
-| Interfaz | Descripción                            |
-| -------- | -------------------------------------- |
-| `read()` | Retorna timestamp 64-bit               |
-| `mmap()` | Mapea registros del timer directamente |
-
----
+Módulo de kernel que mapea los registros de hardware del SoC.
+* **Dispositivo:** `/dev/taas_timer`
+* **Acceso:** Implementa `mmap` para permitir que el nodo de usuario lea el timer sin entrar en modo kernel (cero cambios de contexto).
 
 ### 2️⃣ Nodo PTP — `taas_node`
-
-**Tipo:** User-space real-time daemon
-**Protocolo:** UDP (PTP-like)
-**Puerto:** `1588`
-
-#### Características
-
-* Prioridad **SCHED_FIFO (RT, prio 99)**
-* Zero-copy timestamping vía `mmap`
-* Respuesta determinista a triggers de red
-* Limpieza segura ante señales (`SIGINT`, `SIGTERM`)
+Daemon de tiempo real que sirve el tiempo sobre la red.
+* **Protocolo:** UDP custom (PTP-like).
+* **Prioridad:** `SCHED_FIFO 99` (Máxima prioridad de tiempo real en Linux).
 
 ---
 
-## 🛠️ Compilación
+## 🛠️ Instalación y Despliegue
 
 ### Requisitos
+* Raspberry Pi Zero 2 W (o RPi 3).
+* Raspberry Pi OS (probado en Debian 13 "Trixie").
+* Kernel headers instalados.
 
-* Linux kernel headers
-* GCC
-* Raspberry Pi (BCM2837)
-* Privilegios de superusuario
-
+### Compilación rápida
 ```bash
 make
+
 ```
 
-Esto compila:
+### Instalación Automática
 
-* `taas_driver.ko`
-* `taas_node`
-
----
-
-## 📦 Instalación Enterprise
-
-Se recomienda usar el **script oficial de despliegue**:
+Utiliza el script de despliegue para configurar el servicio y las reglas de hardware:
 
 ```bash
 chmod +x setup_taas.sh
-./setup_taas.sh
+sudo ./setup_taas.sh
+
 ```
 
-### El script realiza:
+---
 
-✔ Limpieza y recompilación
-✔ Eliminación segura de versiones anteriores
-✔ Instalación persistente del driver
-✔ Configuración automática de reglas UDEV
-✔ Carga del módulo kernel
-✔ Verificación de `/dev/taas_timer`
-✔ Reinicio y habilitación del servicio `taas`
+## ⚙️ Compatibilidad Verificada
+
+| Componente | Detalle |
+| --- | --- |
+| **Hardware** | Raspberry Pi Zero 2 W Rev 1.0 ✅ |
+| **SoC** | BCM2837 (4 cores @ 1.00 GHz) ✅ |
+| **Arquitectura** | armv7l (32-bit) / aarch64 (64-bit) ✅ |
+| **OS** | Raspbian GNU/Linux 13 (trixie) ✅ |
+| **Kernel** | Linux 6.12.47+rpt-rpi-v7 ✅ |
 
 ---
 
-## 🔐 Seguridad y Permisos
+## 🧪 Pruebas de Funcionamiento (Verification)
 
-* Dispositivo expuesto vía UDEV:
-
-  ```
-  KERNEL=="taas_timer", MODE="0666"
-  ```
-* Acceso directo a MMIO → **uso exclusivo en sistemas confiables**
-* Diseñado para **entornos controlados / industriales**
-
----
-
-## 📡 Flujo de Operación
-
-1. Cliente envía trigger UDP
-2. Nodo TaaS:
-
-   * Lee timer sin syscall
-   * Ensambla timestamp 64-bit
-3. Respuesta inmediata al cliente
-4. Latencia extremadamente baja y predecible
-
----
-
-## 📈 Casos de Uso
-
-* Precision Time Protocol (PTP)
-* Sincronización de nodos industriales
-* Timestamping financiero / trading
-* Audio / Video profesional
-* Edge computing
-* Sistemas de control en tiempo real
-* Instrumentación y medición de latencia
-
----
-
-## ⚙️ Compatibilidad
-
-| Plataforma               | Estado                         |
-| ------------------------ | ------------------------------ |
-| Raspberry Pi 3 (BCM2837) | ✅ Soportado                    |
-| Kernel 64-bit            | ✅ Requerido                    |
-| Raspberry Pi 4           | ⚠ Requiere ajuste de base MMIO |
-
----
-
-## 🧪 Verificación
+Para verificar que el nodo está respondiendo con el timestamp de 64 bits del hardware, puedes usar `netcat` y `hexdump`:
 
 ```bash
-ls -l /dev/taas_timer
-dmesg | grep TaaS
-systemctl status taas
+# Envía un trigger al puerto 1588
+echo -n "ping" | nc -u -w 1 127.0.0.1 1588 | hexdump -C
+
 ```
+
+**Salida esperada:**
+
+```hexdump
+00000000  04 f1 96 71 00 00 00 00  |...q....|
+
+```
+
+*(Los primeros 8 bytes representan el valor actual del System Timer en formato Little Endian)*.
 
 ---
 
 ## 📜 Licencia
 
-Este proyecto se distribuye bajo licencia **GPL v2**, compatible con módulos kernel Linux.
+Distribuido bajo la licencia **GPL v2**.
 
 ---
 
-## 🧠 Filosofía de Diseño
+## 🧠 Filosofía
 
-> **El tiempo no se pide al sistema.
-> El tiempo se toma del hardware.**
+> "El tiempo no se solicita al sistema operativo; se extrae directamente del silicio."
 
-TaaS elimina capas innecesarias, syscall jitter y abstracciones de alto nivel para entregar **tiempo puro, determinista y verificable**.
-
----
 
