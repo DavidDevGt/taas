@@ -1,0 +1,19 @@
+[Unit]
+Description=Hardware-Level Time-as-a-Service Node
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/home/raspi/ptp_server/taas_node
+WorkingDirectory=/home/raspi/ptp_server
+Restart=always
+RestartSec=3
+User=root
+
+CPUSchedulingPolicy=fifo
+CPUSchedulingPriority=99
+LimitMEMLOCK=infinity
+
+[Install]
+WantedBy=multi-user.target

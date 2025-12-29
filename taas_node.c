@@ -36,6 +36,10 @@ int main() {
     signal(SIGINT, shutdown_node);
     signal(SIGTERM, shutdown_node);
 
+    if (mlockall(MCL_CURRENT | MCL_FUTURE) < 0) {
+        perror("[!] Warning: mlockall failed (check LimitMEMLOCK)");
+    }
+
     struct sched_param sp = { .sched_priority = 99 };
     if (sched_setscheduler(0, SCHED_FIFO, &sp) < 0) {
         perror("[!] Warning: Could not set RT priority");
