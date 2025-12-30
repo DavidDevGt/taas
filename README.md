@@ -125,6 +125,16 @@ chmod +x setup_taas.sh
 sudo ./setup_taas.sh
 ```
 
+To ensure deterministic behavior and avoid scheduler interference, the Raspberry Pi **must** be configured with CPU isolation and tickless operation.
+
+Edit `/boot/cmdline.txt` and append (single line, space-separated):
+
+```text
+isolcpus=3 rcu_nocbs=3 nohz_full=3
+```
+
+This dedicates **CPU core 3** exclusively to the TaaS user-space node.
+
 The script:
 
 * Builds the kernel module

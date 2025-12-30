@@ -25,6 +25,7 @@
 #include <sys/mman.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <sched.h>
 
 #define PTP_PORT 1588
 #define TIMER_DEVICE "/dev/taas_timer"
@@ -55,6 +56,13 @@ void shutdown_node(int sig)
 
 int main(void)
 {
+	cpu_set_t cpuset;
+	CPU_ZERO(&cpuset);
+	CPU_SET(3, &cpuset);
+	if (sched_setaffinity(0, sizeof(cpu_set_t), &cpuset) < 0) {
+		perror("taas warning: isolcpus is active?");
+	}
+	
     struct sched_param sp = { .sched_priority = 99 };
     struct sockaddr_in servaddr, cliaddr;
     volatile uint32_t *st_low, *st_high;
