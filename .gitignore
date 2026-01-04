@@ -8,3 +8,5 @@
 .tmp_versions/
 taas_node
 .py
+private_key.pem
+*.pem

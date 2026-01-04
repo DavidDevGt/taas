@@ -7,7 +7,7 @@ import array
 
 HOST = '127.0.0.1'
 PORT = 1588
-COUNT = 5000 
+COUNT = 10000 
 
 latencies = array.array('d', [0.0] * COUNT)
 hw_timestamps = array.array('Q', [0] * COUNT)
