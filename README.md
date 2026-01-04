@@ -62,7 +62,7 @@ The kernel is used only to **validate, map and protect access**.
 │  - SCHED_FIFO (prio 99)      │
 │  - mlockall(MCL_CURRENT|FUT) │
 │  - UDP time responder        │
-│  - Ed25519 Signing Engine    │ <── Added: Trusted Timestamping
+│  - Ed25519 Signing Engine    │ 
 └──────────────────────────────┘
 
 ```
@@ -114,7 +114,7 @@ The process does not *request* time — it **loads it**.
 ### Requirements
 
 * Raspberry Pi Zero 2 W
-(RPi 3/4 supported with adjusted MMIO offsets)
+(RPi 3 supported with adjusted MMIO offsets)
 * Raspberry Pi OS (Debian 13 / newer)
 * Kernel headers
 * OpenSSL Libs (`libssl-dev`)
