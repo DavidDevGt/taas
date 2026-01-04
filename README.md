@@ -5,7 +5,7 @@
 ![memory](https://img.shields.io/badge/memory-mlockall-orange)
 ![crypto](https://img.shields.io/badge/crypto-Ed25519-blue)
 
-# TaaS — Time as a Service (Enterprise Edition)
+# TaaS — Time as a Service
 
 **Deterministic hardware time access and PTP node for Raspberry Pi (BCM2837)**
 
