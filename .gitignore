@@ -10,3 +10,4 @@ taas_node
 .py
 private_key.pem
 *.pem
+gateway/

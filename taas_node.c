@@ -1,5 +1,5 @@
 /*
- * TaaS Node - Userspace PTP Daemon
+ * TaaS Node - Userspace PTP Daemon (Stratum-1 Hybrid)
  * SPDX-License-Identifier: GPL-2.0
  *
  * TaaS User-Space Time Node
@@ -10,6 +10,8 @@
  * Architecture:
  * - Boot-Time Anchoring: Syncs Hardware Timer to Kernel UTC once at startup.
  * - Runtime: Extrapolates time using only hardware ticks (No syscalls).
+ * - Drift Correction: Periodically re-aligns hardware anchor with Kernel/NTP
+ *                     to compensate for thermal drift (crystal oscillation changes).
  */
 #define _GNU_SOURCE
 #include <stdio.h>
@@ -22,7 +24,8 @@
 #include <sys/mman.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
-#include <time.h> 
+#include <time.h>
+#include <errno.h>
 
 #include <openssl/evp.h>
 #include <openssl/pem.h>
@@ -33,18 +36,22 @@
 #define MAP_SIZE 4096
 #define KEY_FILE "private_key.pem"
 
-/* * BCM2837 System Timer runs at 1MHz.
+#define DRIFT_CHECK_INTERVAL 60
+
+/* BCM2837 System Timer runs at 1MHz.
  * 1 Tick = 1 Microsecond = 1000 Nanoseconds.
  */
 #define NSEC_PER_TICK 1000
 
 struct __attribute__((packed)) taas_certificate {
     uint8_t  client_hash[32];
-    uint64_t utc_timestamp_ns; /* Changed from raw ticks to UTC Nanoseconds */
+    uint64_t utc_timestamp_ns;
     uint8_t  signature[64];
 };
 
-/* Structure to hold the Boot-Time Anchor */
+/* Structure to hold the Boot-Time Anchor
+ * This acts as the "y-intercept" for our time equation: y = mx + b
+ */
 struct time_anchor {
     uint64_t base_utc_ns;
     uint64_t base_hw_ticks;
@@ -85,6 +92,9 @@ void shutdown_node(int sig)
 /*
  * get_hardware_ticks - Atomic read of 64-bit BCM2837 timer
  * Uses optimistic concurrency control (lock-free).
+ *
+ * Since we are reading two 32-bit registers to form a 64-bit value,
+ * we must ensure the high bits didn't roll over during the read of low bits.
  */
 static inline uint64_t get_hardware_ticks(void)
 {
@@ -98,31 +108,57 @@ static inline uint64_t get_hardware_ticks(void)
 }
 
 /*
- * calibrate_time_anchor - Establishes the relationship between 
+ * calibrate_time_anchor - Establishes the relationship between
  * Hardware Ticks and Real World Time (UTC).
- * This is called ONCE at startup to avoid syscalls later.
+ *
+ * This function is critical. It aligns our "fast" hardware clock
+ * with the "correct" kernel/NTP clock.
+ *
+ * param verbose: 1 to print logs (boot), 0 to just correct (runtime).
  */
-void calibrate_time_anchor(void)
+void calibrate_time_anchor(int verbose)
 {
     struct timespec ts_kernel;
-    
-    /* * Critical Section: We want these two reads to be as close as possible.
-     * Since we are isolated on Core 3 with interrupts pinned away, 
+
+    /* Critical Section: We want these two reads to be as close as possible.
+     * Since we are isolated on Core 3 with interrupts pinned away,
      * this is highly deterministic.
      */
     clock_gettime(CLOCK_REALTIME, &ts_kernel);
     uint64_t ticks_now = get_hardware_ticks();
 
-    anchor.base_utc_ns = ((uint64_t)ts_kernel.tv_sec * 1000000000ULL) + ts_kernel.tv_nsec;
+    uint64_t new_base_utc = ((uint64_t)ts_kernel.tv_sec * 1000000000ULL) + ts_kernel.tv_nsec;
+
+    if (!verbose) {
+        /* Calculate drift for monitoring before resetting.
+         * This tells us how much the crystal oscillated differently 
+         * due to temperature vs the NTP standard.
+         */
+        uint64_t projected = anchor.base_utc_ns + (ticks_now - anchor.base_hw_ticks) * NSEC_PER_TICK;
+        int64_t drift = (int64_t)new_base_utc - (int64_t)projected;
+        
+        /* Print drift. Since buffering is disabled in main(), this hits journalctl immediately */
+        printf("[Drift] Correction applied: %ld ns\n", drift);
+    }
+
+    anchor.base_utc_ns = new_base_utc;
     anchor.base_hw_ticks = ticks_now;
 
-    printf("[TaaS] Anchor Established:\n");
-    printf("       UTC Base: %llu ns\n", anchor.base_utc_ns);
-    printf("       HW Base:  %llu ticks\n", anchor.base_hw_ticks);
+    if (verbose) {
+        printf("[TaaS] Anchor Established:\n");
+        printf("       UTC Base: %llu ns\n", anchor.base_utc_ns);
+        printf("       HW Base:  %llu ticks\n", anchor.base_hw_ticks);
+    }
 }
 
 int main(void)
 {
+    /* DISABLE STDOUT BUFFERING
+     * This ensures printf() shows up in journalctl immediately,
+     * crucial for monitoring the drift correction in real-time.
+     */
+    setbuf(stdout, NULL);
+
     cpu_set_t cpuset;
     CPU_ZERO(&cpuset);
     CPU_SET(3, &cpuset);
@@ -153,11 +189,15 @@ int main(void)
         fprintf(stderr, "Fatal: Key file not found. Generate Ed25519 key first.\n");
     }
 
-    /* Lock memory to prevent paging latency */
+    /* Lock memory to prevent paging latency.
+     * Paging would introduce non-deterministic delays (jitter).
+     */
     if (mlockall(MCL_CURRENT | MCL_FUTURE) < 0)
         perror("taas: warning: mlockall failed");
 
-    /* Elevate to Real-Time FIFO */
+    /* Elevate to Real-Time FIFO.
+     * This preempts almost everything else on the system.
+     */
     if (sched_setscheduler(0, SCHED_FIFO, &sp) < 0)
         perror("taas: warning: sched_setscheduler failed");
 
@@ -180,14 +220,23 @@ int main(void)
     st_low  = (volatile uint32_t *)((char *)map_base + 0x04);
     st_high = (volatile uint32_t *)((char *)map_base + 0x08);
 
-    /* --- CALIBRATION PHASE --- */
-    /* This connects the abstract hardware ticks to real world time */
-    calibrate_time_anchor();
+    calibrate_time_anchor(1);
 
     sockfd = socket(AF_INET, SOCK_DGRAM, 0);
     if (sockfd < 0) {
         perror("taas: socket creation");
         return EXIT_FAILURE;
+    }
+
+    /* SET SOCKET TIMEOUT
+     * We need the recvfrom() loop to wake up periodically (every 1 sec)
+     * even if no packets arrive, so we can check if drift correction is needed.
+     */
+    struct timeval tv;
+    tv.tv_sec = 1;
+    tv.tv_usec = 0;
+    if (setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) < 0) {
+        perror("taas: setsockopt failed");
     }
 
     memset(&servaddr, 0, sizeof(servaddr));
@@ -206,22 +255,23 @@ int main(void)
     uint8_t buffer[64];
     socklen_t len = sizeof(cliaddr);
     size_t req_len;
+    time_t last_check = time(NULL);
 
     printf("[TaaS] Unified Ed25519 Node Ready. Serving UTC Nanoseconds.\n");
 
     /*
      * Main event loop:
-     * - Wait for UDP trigger
+     * - Wait for UDP trigger (with 1s timeout)
      * - Perform atomic hardware read
      * - Extrapolate UTC time from Anchor
      * - Send UTC timestamp back
+     * - Periodically check for Thermal Drift
      */
     while (1) {
         ssize_t rec = recvfrom(sockfd, buffer, sizeof(buffer), 0,
                                (struct sockaddr *)&cliaddr, &len);
 
         if (rec > 0) {
-            
             /* 1. Get Hardware Ticks (Atomic) */
             uint64_t current_hw = get_hardware_ticks();
 
@@ -252,6 +302,12 @@ int main(void)
                 /* RAW MODE (Just the UTC uint64) */
                 sendto(sockfd, &current_utc_ns, sizeof(current_utc_ns), 0, (struct sockaddr *)&cliaddr, len);
             }
+        }
+
+        time_t now = time(NULL);
+        if (now - last_check >= DRIFT_CHECK_INTERVAL) {
+            calibrate_time_anchor(0);
+            last_check = now;
         }
     }
 
