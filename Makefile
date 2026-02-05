@@ -3,7 +3,8 @@ KDIR := /lib/modules/$(shell uname -r)/build
 PWD := $(shell pwd)
 
 CC := gcc
-CFLAGS := -O3 -Wall -march=armv8-a+crc+crypto -mfpu=crypto-neon-fp-armv8 -mfloat-abi=hard
+# Se eliminan flags de 32 bits (-mfpu, -mfloat-abi) incompatibles con aarch64
+CFLAGS := -O3 -Wall -march=armv8-a+crc+crypto
 LIBS := -lssl -lcrypto
 NODE_BIN := taas_node
 
@@ -21,6 +22,7 @@ clean:
 
 install:
 	@echo "[+] Instalando Driver..."
+	sudo mkdir -p /lib/modules/$(shell uname -r)/extra/
 	sudo cp taas_driver.ko /lib/modules/$(shell uname -r)/extra/
 	sudo depmod -a
 	@echo "[+] Configurando reglas UDEV..."

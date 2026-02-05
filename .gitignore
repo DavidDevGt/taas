@@ -1,13 +1,25 @@
-*.o
+# Binarios
+taas_node
 *.ko
+*.o
+
+# Archivos de Kernel
 *.mod.c
 *.mod
 *.order
 *.symvers
 .*.cmd
 .tmp_versions/
-taas_node
-.py
-private_key.pem
+
+# Llaves y Seguridad
 *.pem
+*.bin
+*.tsr
+*.proof
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Otros
 gateway/

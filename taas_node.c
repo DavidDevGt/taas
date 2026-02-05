@@ -34,7 +34,7 @@
 #define PTP_PORT 1588
 #define TIMER_DEVICE "/dev/taas_timer"
 #define MAP_SIZE 4096
-#define KEY_FILE "private_key.pem"
+#define KEY_FILE "/etc/taas/private_key.pem"
 
 #define DRIFT_CHECK_INTERVAL 60
 
